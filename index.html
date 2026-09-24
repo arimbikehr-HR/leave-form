@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+<title>請假單</title>
+<script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+<style>
+  :root { --main:#1f4e78; --ok:#2e7d32; --err:#c62828; --bg:#f4f6f9; --card:#fff; --line:#d9dee5; }
+  * { box-sizing:border-box; }
+  body { margin:0; font-family:-apple-system,"PingFang TC","Noto Sans TC","Microsoft JhengHei",sans-serif; background:var(--bg); color:#222; font-size:16px; }
+  header { background:var(--main); color:#fff; padding:14px 16px; font-size:18px; font-weight:bold; }
+  main { padding:12px 16px 40px; max-width:520px; margin:0 auto; }
+  .card { background:var(--card); border-radius:12px; padding:14px 16px; margin-bottom:12px; box-shadow:0 1px 3px rgba(0,0,0,.06); }
+  .who { font-size:15px; white-space:pre-line; line-height:1.6; }
+  label { display:block; font-weight:bold; margin:14px 0 6px; font-size:15px; }
+  select, input, textarea { width:100%; padding:10px; font-size:16px; border:1px solid var(--line); border-radius:8px; background:#fff; }
+  textarea { min-height:70px; resize:vertical; }
+  .row { display:flex; gap:8px; }
+  .row > * { flex:1; }
+  .quick { display:flex; gap:8px; margin-top:8px; }
+  .quick button { flex:1; padding:8px 0; border:1px solid var(--main); background:#fff; color:var(--main); border-radius:8px; font-size:15px; }
+  .hours { margin-top:14px; font-size:17px; font-weight:bold; color:var(--main); }
+  .submit { width:100%; margin-top:18px; padding:14px; font-size:17px; font-weight:bold; background:var(--main); color:#fff; border:none; border-radius:10px; }
+  .submit:disabled { opacity:.5; }
+  .msg { padding:12px 14px; border-radius:10px; margin-bottom:12px; white-space:pre-line; line-height:1.6; }
+  .msg.err { background:#fdecea; color:var(--err); }
+  .msg.ok { background:#e8f5e9; color:var(--ok); }
+  .hidden { display:none; }
+  table { width:100%; border-collapse:collapse; font-size:14px; }
+  td { padding:6px 4px; border-bottom:1px solid var(--line); }
+  .muted { color:#777; font-size:13px; }
+</style>
+</head>
+<body>
+<header>請假單</header>
+<main>
+  <div id="loading" class="card">載入中…</div>
+  <div id="error" class="msg err hidden"></div>
+
+  <div id="formArea" class="hidden">
+    <div class="card who" id="who"></div>
+
+    <div class="card">
+      <label for="type">假別</label>
+      <select id="type"></select>
+
+      <label>開始</label>
+      <div class="row">
+        <input type="date" id="sDate">
+        <select id="sTime"></select>
+      </div>
+      <label>結束</label>
+      <div class="row">
+        <input type="date" id="eDate">
+        <select id="eTime"></select>
+      </div>
+      <div class="quick">
+        <button type="button" data-q="full">整天</button>
+        <button type="button" data-q="am">上午</button>
+        <button type="button" data-q="pm">下午</button>
+      </div>
+      <div class="hours" id="hours">請假時數：－</div>
+
+      <label for="reason">事由</label>
+      <textarea id="reason" maxlength="200" placeholder="例如：家中有事"></textarea>
+
+      <label for="agent">代理人（選填）</label>
+      <input id="agent" maxlength="20" placeholder="例如：王小明">
+
+      <button class="submit" id="submit">送出請假單</button>
+    </div>
+
+    <div class="card">
+      <div style="font-weight:bold;margin-bottom:6px">最近的假單</div>
+      <table id="recent"></table>
+    </div>
+  </div>
+
+  <div id="doneArea" class="hidden">
+    <div class="msg ok" id="doneMsg"></div>
+    <button class="submit" id="closeBtn">關閉</button>
+  </div>
+</main>
+
+<script>
+/* ======== 只需要改這兩行 ======== */
+const LIFF_ID = '請貼上 LIFF ID';
+const GAS_URL = '請貼上 Apps Script 網頁應用程式網址（/exec 結尾）';
+/* ================================ */
+
+const SEGMENTS = [[480,600],[610,720],[780,900],[910,1020]];
+let idToken = '', holidays = new Set();
+const $ = id => document.getElementById(id);
+
+function showError(t){ $('error').textContent = t; $('error').classList.remove('hidden'); window.scrollTo(0,0); }
+function hideError(){ $('error').classList.add('hidden'); }
+
+async function api(payload){
+  const res = await fetch(GAS_URL, { method:'POST', body: JSON.stringify(Object.assign({ idToken }, payload)) });
+  return res.json();
+}
+
+function timeOptions(){
+  const t = [];
+  for (let m = 480; m <= 1020; m += 30) {
+    if (m > 720 && m < 780) continue;          // 12:00–13:00 午休
+    t.push(String(Math.floor(m/60)).padStart(2,'0') + ':' + String(m%60).padStart(2,'0'));
+  }
+  return t.map(x => `<option value="${x}">${x}</option>`).join('');
+}
+
+function today(){ const d = new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function toMin(t){ const [h,m] = t.split(':').map(Number); return h*60+m; }
+function dayMin(a,b){ return SEGMENTS.reduce((s,g)=>s+Math.max(0,Math.min(b,g[1])-Math.max(a,g[0])),0); }
+function half(m){ return Math.ceil(Math.round(m)/30)/2; }
+
+function calcHours(){
+  const sd=$('sDate').value, ed=$('eDate').value, st=$('sTime').value, et=$('eTime').value;
+  if (!sd || !ed) return null;
+  const s = new Date(sd+'T'+st), e = new Date(ed+'T'+et);
+  if (e <= s) return -1;
+  if (sd === ed) return half(dayMin(toMin(st), toMin(et)));
+  let h = half(dayMin(toMin(st), 1020)) + half(dayMin(480, toMin(et)));
+  const d = new Date(sd+'T00:00'); d.setDate(d.getDate()+1);
+  const last = new Date(ed+'T00:00');
+  for (; d < last; d.setDate(d.getDate()+1)) {
+    const key = d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+    if (d.getDay()!==0 && d.getDay()!==6 && !holidays.has(key)) h += 8;
+  }
+  return h;
+}
+
+function updateHours(){
+  const h = calcHours();
+  $('hours').textContent = h === null ? '請假時數：－' : h < 0 ? '結束時間要晚於開始時間' : '請假時數：' + h + ' 小時';
+  $('hours').style.color = h !== null && h < 0 ? 'var(--err)' : 'var(--main)';
+}
+
+function quick(kind){
+  if (!$('sDate').value) $('sDate').value = today();
+  $('eDate').value = $('sDate').value;
+  const map = { full:['08:00','17:00'], am:['08:00','12:00'], pm:['13:00','17:00'] };
+  $('sTime').value = map[kind][0]; $('eTime').value = map[kind][1];
+  updateHours();
+}
+
+async function main(){
+  try {
+    await liff.init({ liffId: LIFF_ID });
+    if (!liff.isLoggedIn()) { liff.login(); return; }
+    idToken = liff.getIDToken();
+    const d = await api({ action:'init' });
+    $('loading').classList.add('hidden');
+    if (!d.ok) { showError(d.msg); return; }
+
+    holidays = new Set(d.holidays);
+    $('who').textContent = d.balanceText + (d.pendingAL ? '\n（另有特休 ' + d.pendingAL + ' 小時審核中）' : '');
+    $('type').innerHTML = d.leaveTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+    $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
+    $('sDate').value = today(); $('eDate').value = today();
+    $('sTime').value = '08:00'; $('eTime').value = '17:00';
+    $('recent').innerHTML = d.recent.length
+      ? d.recent.map(r => `<tr><td>${r.type}</td><td>${r.start}～${r.end}</td><td>${r.hours||''}h</td><td>${r.status}</td></tr>`).join('')
+      : '<tr><td class="muted">目前沒有假單</td></tr>';
+    ['sDate','eDate','sTime','eTime'].forEach(id => $(id).addEventListener('change', () => {
+      if (id === 'sDate' && $('eDate').value < $('sDate').value) $('eDate').value = $('sDate').value;
+      updateHours();
+    }));
+    document.querySelectorAll('.quick button').forEach(b => b.addEventListener('click', () => quick(b.dataset.q)));
+    updateHours();
+    $('formArea').classList.remove('hidden');
+  } catch (e) {
+    $('loading').classList.add('hidden');
+    showError('表單載入失敗，請關閉後重新開啟。\n（' + e.message + '）');
+  }
+}
+
+$('submit').addEventListener('click', async () => {
+  hideError();
+  const h = calcHours();
+  if (h === null || h < 0) { showError('請確認開始和結束時間。'); return; }
+  if (!$('reason').value.trim()) { showError('請填寫事由。'); return; }
+  $('submit').disabled = true; $('submit').textContent = '送出中…';
+  try {
+    const d = await api({
+      action:'submit', leaveType:$('type').value,
+      start:$('sDate').value+'T'+$('sTime').value, end:$('eDate').value+'T'+$('eTime').value,
+      reason:$('reason').value.trim(), agent:$('agent').value.trim(),
+    });
+    if (!d.ok) { showError(d.msg); return; }
+    $('formArea').classList.add('hidden');
+    $('doneMsg').textContent = d.msg;
+    $('doneArea').classList.remove('hidden');
+    try { if (liff.isInClient()) await liff.sendMessages([{ type:'text', text: d.msg }]); } catch (e) {}
+  } catch (e) {
+    showError('送出失敗，請稍後再試。\n（' + e.message + '）');
+  } finally {
+    $('submit').disabled = false; $('submit').textContent = '送出請假單';
+  }
+});
+$('closeBtn').addEventListener('click', () => liff.isInClient() ? liff.closeWindow() : window.close());
+
+main();
+</script>
+</body>
+</html>
