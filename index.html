@@ -212,7 +212,12 @@ $('submit').addEventListener('click', async () => {
     $('doneArea').classList.remove('hidden');
     try { if (liff.isInClient()) await liff.sendMessages([{ type:'text', text: d.msg }]); } catch (e) {}
   } catch (e) {
-    showError('送出失敗，請稍後再試。\n（' + e.message + '）');
+    // 網路中斷時，假單可能其實已經送出：重新讀取「最近的假單」讓員工確認
+    showError('送出時網路不穩，請先看下方「最近的假單」確認是否已送出，沒有的話再送一次。\n（' + e.message + '）');
+    try {
+      const d2 = await api({ action:'init' });
+      if (d2.ok) $('recent').innerHTML = d2.recent.map(r => `<tr><td>${r.type}</td><td>${r.start}～${r.end}</td><td>${r.hours||''}h</td><td>${r.status}</td></tr>`).join('');
+    } catch (e2) {}
   } finally {
     $('submit').disabled = false; $('submit').textContent = '送出請假單';
   }
