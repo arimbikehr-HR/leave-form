@@ -100,13 +100,13 @@ function setStatus(t){ $('loading').textContent = t; }
 
 async function api(payload){
   const ctrl = new AbortController();
-  const timer = setTimeout(() => ctrl.abort(), 30000);
+  const timer = setTimeout(() => ctrl.abort(), 60000);
   let res, text;
   try {
     res = await fetch(GAS_URL, { method:'POST', body: JSON.stringify(Object.assign({ idToken }, payload)), signal: ctrl.signal });
     text = await res.text();
   } catch (e) {
-    throw new Error(e.name === 'AbortError' ? '連線 Apps Script 超過 30 秒沒有回應（請檢查 GAS_URL 與部署設定）' : '無法連線 Apps Script：' + e.message);
+    throw new Error(e.name === 'AbortError' ? '連線 Apps Script 超過 60 秒沒有回應（請檢查 GAS_URL 與部署設定）' : '無法連線 Apps Script：' + e.message);
   } finally { clearTimeout(timer); }
   try { return JSON.parse(text); }
   catch (e) { throw new Error('Apps Script 回傳的不是表單資料，可能還沒部署第 4 步的新版本。回傳內容：' + text.slice(0, 120)); }
