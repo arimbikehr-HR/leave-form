@@ -65,8 +65,9 @@
       <label for="reason">事由</label>
       <textarea id="reason" maxlength="200" placeholder="例如：家中有事"></textarea>
 
-      <label for="agent">代理人（選填）</label>
+      <label for="agent" id="agentLabel">代理人（選填）</label>
       <input id="agent" maxlength="20" placeholder="例如：王小明">
+      <select id="agentSel" class="hidden"></select>
 
       <button class="submit" id="submit">送出請假單</button>
     </div>
@@ -91,6 +92,7 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbwJZ0ctEp9gje08ll4CeS9c
 
 const SEGMENTS = [[480,600],[610,720],[780,900],[910,1020]];
 let idToken = '', holidays = new Set();
+let needAgent = false;
 const $ = id => document.getElementById(id);
 
 function showError(t){ $('error').textContent = t; $('error').classList.remove('hidden'); window.scrollTo(0,0); }
@@ -175,6 +177,13 @@ async function main(){
     holidays = new Set(d.holidays);
     $('who').textContent = d.balanceText + (d.pendingAL ? '\n（另有特休 ' + d.pendingAL + ' 小時審核中）' : '');
     $('type').innerHTML = d.leaveTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+    needAgent = !!d.needAgent;
+    if (needAgent) {
+      $('agentLabel').textContent = '職務代理人（必填，代理人會收到 LINE 確認）';
+      $('agent').classList.add('hidden'); $('agentSel').classList.remove('hidden');
+      $('agentSel').innerHTML = '<option value="">— 請選擇代理人 —</option>' +
+        (d.agents || []).map(a => `<option value="${a.id}">${a.id} ${a.name}</option>`).join('');
+    }
     $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
     $('sDate').value = today(); $('eDate').value = today();
     $('sTime').value = '08:00'; $('eTime').value = '17:00';
@@ -199,12 +208,14 @@ $('submit').addEventListener('click', async () => {
   const h = calcHours();
   if (h === null || h < 0) { showError('請確認開始和結束時間。'); return; }
   if (!$('reason').value.trim()) { showError('請填寫事由。'); return; }
+  if (needAgent && !$('agentSel').value) { showError('請選擇職務代理人。'); return; }
   $('submit').disabled = true; $('submit').textContent = '送出中…';
   try {
     const d = await api({
       action:'submit', leaveType:$('type').value,
       start:$('sDate').value+'T'+$('sTime').value, end:$('eDate').value+'T'+$('eTime').value,
       reason:$('reason').value.trim(), agent:$('agent').value.trim(),
+      agentId: needAgent ? $('agentSel').value : '',
     });
     if (!d.ok) { showError(d.msg); return; }
     $('formArea').classList.add('hidden');
