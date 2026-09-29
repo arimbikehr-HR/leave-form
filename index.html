@@ -19,7 +19,7 @@
   .row { display:flex; gap:8px; }
   .row > * { flex:1; }
   .quick { display:flex; gap:8px; margin-top:8px; }
-  .quick button { flex:1; padding:8px 0; border:1px solid var(--main); background:#fff; color:var(--main); border-radius:8px; font-size:15px; }
+  .quick button { flex:1; padding:8px 0; white-space:pre-line; line-height:1.3; border:1px solid var(--main); background:#fff; color:var(--main); border-radius:8px; font-size:15px; }
   .hours { margin-top:14px; font-size:17px; font-weight:bold; color:var(--main); }
   .submit { width:100%; margin-top:18px; padding:14px; font-size:17px; font-weight:bold; background:var(--main); color:#fff; border:none; border-radius:10px; }
   .submit:disabled { opacity:.5; }
@@ -33,7 +33,7 @@
 </style>
 </head>
 <body>
-<header>請假單</header>
+<header id="hdr">請假單</header>
 <main>
   <div id="loading" class="card">載入中…</div>
   <div id="error" class="msg err hidden"></div>
@@ -42,15 +42,15 @@
     <div class="card who" id="who"></div>
 
     <div class="card">
-      <label for="type">假別</label>
+      <label for="type" id="lblType">假別</label>
       <select id="type"></select>
 
-      <label>開始</label>
+      <label id="lblStart">開始</label>
       <div class="row">
         <input type="date" id="sDate">
         <select id="sTime"></select>
       </div>
-      <label>結束</label>
+      <label id="lblEnd">結束</label>
       <div class="row">
         <input type="date" id="eDate">
         <select id="eTime"></select>
@@ -62,7 +62,7 @@
       </div>
       <div class="hours" id="hours">請假時數：－</div>
 
-      <label for="reason">事由</label>
+      <label for="reason" id="lblReason">事由</label>
       <textarea id="reason" maxlength="200" placeholder="例如：家中有事"></textarea>
 
       <label for="agent" id="agentLabel">代理人（選填）</label>
@@ -73,7 +73,7 @@
     </div>
 
     <div class="card">
-      <div style="font-weight:bold;margin-bottom:6px">最近的假單</div>
+      <div style="font-weight:bold;margin-bottom:6px" id="lblRecent">最近的假單</div>
       <table id="recent"></table>
     </div>
   </div>
@@ -93,6 +93,35 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbwJZ0ctEp9gje08ll4CeS9c
 const SEGMENTS = [[480,600],[610,720],[780,900],[910,1020]];
 let idToken = '', holidays = new Set();
 let needAgent = false;
+/* 越南文（外籍移工自動顯示中越雙語） */
+let VN = false;
+const VI = {
+  '請假單': 'Đơn xin nghỉ phép', '假別': 'Loại phép', '開始': 'Bắt đầu', '結束': 'Kết thúc',
+  '整天': 'Cả ngày', '上午': 'Buổi sáng', '下午': 'Buổi chiều', '事由': 'Lý do',
+  '代理人（選填）': 'Người làm thay (không bắt buộc)',
+  '職務代理人（必填，代理人會收到 LINE 確認）': 'Người làm thay (bắt buộc, sẽ nhận xác nhận qua LINE)',
+  '— 請選擇代理人 —': 'Chọn người làm thay',
+  '送出請假單': 'Gửi đơn', '送出中…': 'Đang gửi…', '最近的假單': 'Đơn gần đây', '關閉': 'Đóng',
+  '目前沒有假單': 'Chưa có đơn nào',
+  '結束時間要晚於開始時間': 'Giờ kết thúc phải sau giờ bắt đầu',
+  '請確認開始和結束時間。': 'Vui lòng kiểm tra giờ bắt đầu và kết thúc.',
+  '請填寫事由。': 'Vui lòng nhập lý do.',
+  '請選擇職務代理人。': 'Vui lòng chọn người làm thay.',
+  '表單載入失敗，請關閉後重新開啟。': 'Không tải được đơn, vui lòng đóng và mở lại.',
+  '送出時網路不穩，請先看下方「最近的假單」確認是否已送出，沒有的話再送一次。': 'Mạng không ổn định. Hãy xem "Đơn gần đây" bên dưới để kiểm tra đơn đã gửi chưa; nếu chưa, hãy gửi lại.',
+};
+/** 中文＋越南文（非移工只回中文） */
+function T(zh, sep) { return VN && VI[zh] ? zh + (sep || ' ') + VI[zh] : zh; }
+function applyLang() {
+  document.title = T('請假單');
+  $('hdr').textContent = T('請假單');
+  $('lblType').textContent = T('假別'); $('lblStart').textContent = T('開始'); $('lblEnd').textContent = T('結束');
+  $('lblReason').textContent = T('事由'); $('lblRecent').textContent = T('最近的假單');
+  $('agentLabel').textContent = T('代理人（選填）');
+  $('reason').placeholder = VN ? '例如：家中有事 / VD: Việc gia đình' : '例如：家中有事';
+  document.querySelectorAll('.quick button').forEach(b => b.textContent = T({ full: '整天', am: '上午', pm: '下午' }[b.dataset.q], '\n'));
+  $('submit').textContent = T('送出請假單'); $('closeBtn').textContent = T('關閉');
+}
 const $ = id => document.getElementById(id);
 
 function showError(t){ $('error').textContent = t; $('error').classList.remove('hidden'); window.scrollTo(0,0); }
@@ -146,7 +175,7 @@ function calcHours(){
 
 function updateHours(){
   const h = calcHours();
-  $('hours').textContent = h === null ? '請假時數：－' : h < 0 ? '結束時間要晚於開始時間' : '請假時數：' + h + ' 小時';
+  $('hours').textContent = h === null ? '請假時數：－' : h < 0 ? T('結束時間要晚於開始時間') : '請假時數：' + h + ' 小時' + (VN ? '（' + h + ' giờ）' : '');
   $('hours').style.color = h !== null && h < 0 ? 'var(--err)' : 'var(--main)';
 }
 
@@ -175,13 +204,16 @@ async function main(){
     if (!d.ok) { showError(d.msg); return; }
 
     holidays = new Set(d.holidays);
-    $('who').textContent = d.balanceText + (d.pendingAL ? '\n（另有特休 ' + d.pendingAL + ' 小時審核中）' : '');
-    $('type').innerHTML = d.leaveTypes.map(t => `<option value="${t}">${t}</option>`).join('');
+    VN = d.lang === 'vi';
+    if (VN) applyLang();
+    $('who').textContent = d.balanceText + (d.pendingAL ? '\n（另有特休 ' + d.pendingAL + ' 小時審核中）' +
+      (VN ? '\n(Còn ' + d.pendingAL + ' giờ phép năm đang chờ duyệt)' : '') : '');
+    $('type').innerHTML = d.leaveTypes.map(t => `<option value="${t}">${t}${VN && d.typeVi && d.typeVi[t] ? ' / ' + d.typeVi[t] : ''}</option>`).join('');
     needAgent = !!d.needAgent;
     if (needAgent) {
-      $('agentLabel').textContent = '職務代理人（必填，代理人會收到 LINE 確認）';
+      $('agentLabel').textContent = T('職務代理人（必填，代理人會收到 LINE 確認）');
       $('agent').classList.add('hidden'); $('agentSel').classList.remove('hidden');
-      $('agentSel').innerHTML = '<option value="">— 請選擇代理人 —</option>' +
+      $('agentSel').innerHTML = '<option value="">' + T('— 請選擇代理人 —') + '</option>' +
         (d.agents || []).map(a => `<option value="${a.id}">${a.id} ${a.name}</option>`).join('');
     }
     $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
@@ -189,7 +221,7 @@ async function main(){
     $('sTime').value = '08:00'; $('eTime').value = '17:00';
     $('recent').innerHTML = d.recent.length
       ? d.recent.map(r => `<tr><td>${r.type}</td><td>${r.start}～${r.end}</td><td>${r.hours||''}h</td><td>${r.status}</td></tr>`).join('')
-      : '<tr><td class="muted">目前沒有假單</td></tr>';
+      : '<tr><td class="muted">' + T('目前沒有假單') + '</td></tr>';
     ['sDate','eDate','sTime','eTime'].forEach(id => $(id).addEventListener('change', () => {
       if (id === 'sDate' && $('eDate').value < $('sDate').value) $('eDate').value = $('sDate').value;
       updateHours();
@@ -199,17 +231,17 @@ async function main(){
     $('formArea').classList.remove('hidden');
   } catch (e) {
     $('loading').classList.add('hidden');
-    showError('表單載入失敗，請關閉後重新開啟。\n（' + e.message + '）');
+    showError(T('表單載入失敗，請關閉後重新開啟。', '\n') + '\n（' + e.message + '）');
   }
 }
 
 $('submit').addEventListener('click', async () => {
   hideError();
   const h = calcHours();
-  if (h === null || h < 0) { showError('請確認開始和結束時間。'); return; }
-  if (!$('reason').value.trim()) { showError('請填寫事由。'); return; }
-  if (needAgent && !$('agentSel').value) { showError('請選擇職務代理人。'); return; }
-  $('submit').disabled = true; $('submit').textContent = '送出中…';
+  if (h === null || h < 0) { showError(T('請確認開始和結束時間。', '\n')); return; }
+  if (!$('reason').value.trim()) { showError(T('請填寫事由。', '\n')); return; }
+  if (needAgent && !$('agentSel').value) { showError(T('請選擇職務代理人。', '\n')); return; }
+  $('submit').disabled = true; $('submit').textContent = T('送出中…');
   try {
     const d = await api({
       action:'submit', leaveType:$('type').value,
@@ -224,13 +256,13 @@ $('submit').addEventListener('click', async () => {
     try { if (liff.isInClient()) await liff.sendMessages([{ type:'text', text: d.msg }]); } catch (e) {}
   } catch (e) {
     // 網路中斷時，假單可能其實已經送出：重新讀取「最近的假單」讓員工確認
-    showError('送出時網路不穩，請先看下方「最近的假單」確認是否已送出，沒有的話再送一次。\n（' + e.message + '）');
+    showError(T('送出時網路不穩，請先看下方「最近的假單」確認是否已送出，沒有的話再送一次。', '\n') + '\n（' + e.message + '）');
     try {
       const d2 = await api({ action:'init' });
       if (d2.ok) $('recent').innerHTML = d2.recent.map(r => `<tr><td>${r.type}</td><td>${r.start}～${r.end}</td><td>${r.hours||''}h</td><td>${r.status}</td></tr>`).join('');
     } catch (e2) {}
   } finally {
-    $('submit').disabled = false; $('submit').textContent = '送出請假單';
+    $('submit').disabled = false; $('submit').textContent = T('送出請假單');
   }
 });
 $('closeBtn').addEventListener('click', () => liff.isInClient() ? liff.closeWindow() : window.close());
