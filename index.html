@@ -68,6 +68,7 @@
       <label for="agent" id="agentLabel">代理人（選填）</label>
       <input id="agent" maxlength="20" placeholder="例如：王小明">
       <select id="agentSel" class="hidden"></select>
+      <div id="agentNote" class="hidden" style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#FFF4E5;color:#B45309;font-size:14px;white-space:pre-line"></div>
 
       <button class="submit" id="submit">送出請假單</button>
     </div>
@@ -103,6 +104,8 @@ const VI = {
   '— 請選擇代理人 —': 'Chọn người làm thay',
   '送出請假單': 'Gửi đơn', '送出中…': 'Đang gửi…', '最近的假單': 'Đơn gần đây', '關閉': 'Đóng',
   '目前沒有假單': 'Chưa có đơn nào',
+  '未綁定 LINE': 'chưa liên kết LINE',
+  '此代理人尚未綁定 LINE，請當面告知。': 'Người làm thay này chưa liên kết LINE, vui lòng báo trực tiếp.',
   '結束時間要晚於開始時間': 'Giờ kết thúc phải sau giờ bắt đầu',
   '請確認開始和結束時間。': 'Vui lòng kiểm tra giờ bắt đầu và kết thúc.',
   '請填寫事由。': 'Vui lòng nhập lý do.',
@@ -214,7 +217,13 @@ async function main(){
       $('agentLabel').textContent = T('職務代理人（必填，代理人會收到 LINE 確認）');
       $('agent').classList.add('hidden'); $('agentSel').classList.remove('hidden');
       $('agentSel').innerHTML = '<option value="">' + T('— 請選擇代理人 —') + '</option>' +
-        (d.agents || []).map(a => `<option value="${a.id}">${a.id} ${a.name}</option>`).join('');
+        (d.agents || []).map(a => `<option value="${a.id}" data-bound="${a.bound ? 1 : 0}">${a.id} ${a.name}${a.bound === false ? '（' + T('未綁定 LINE') + '）' : ''}</option>`).join('');
+      $('agentSel').addEventListener('change', () => {
+        const o = $('agentSel').selectedOptions[0];
+        const unbound = o && o.value && o.dataset.bound === '0';
+        $('agentNote').textContent = unbound ? '⚠ ' + T('此代理人尚未綁定 LINE，請當面告知。', '\n') : '';
+        $('agentNote').classList.toggle('hidden', !unbound);
+      });
     }
     $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
     $('sDate').value = today(); $('eDate').value = today();
