@@ -67,6 +67,8 @@
 
       <label for="agent" id="agentLabel">代理人（選填）</label>
       <input id="agent" maxlength="20" placeholder="例如：王小明">
+      <input id="agentType" class="hidden" inputmode="text" autocomplete="off" placeholder="直接輸入員工編號或姓名，例如 0161">
+      <div id="agentHint" class="hidden" style="margin:6px 0;font-size:14px;white-space:pre-line"></div>
       <select id="agentSel" class="hidden"></select>
       <div id="agentNote" class="hidden" style="margin-top:6px;padding:8px 10px;border-radius:8px;background:#FFF4E5;color:#B45309;font-size:14px;white-space:pre-line"></div>
 
@@ -110,6 +112,10 @@ const VI = {
   '請確認開始和結束時間。': 'Vui lòng kiểm tra giờ bắt đầu và kết thúc.',
   '請填寫事由。': 'Vui lòng nhập lý do.',
   '請選擇職務代理人。': 'Vui lòng chọn người làm thay.',
+  '直接輸入員工編號或姓名，例如 0161': 'Nhập mã nhân viên hoặc tên, VD: 0161',
+  '格式不對：請輸入員工編號（數字，例如 0161）或姓名。': 'Sai định dạng: nhập mã nhân viên (số, VD 0161) hoặc tên.',
+  '查無此員工，請確認編號或改用下方選單。': 'Không tìm thấy nhân viên, vui lòng kiểm tra lại hoặc chọn trong danh sách.',
+  '代理人輸入有誤，請修正後再送出。': 'Người làm thay nhập chưa đúng, vui lòng sửa lại.',
   '表單載入失敗，請關閉後重新開啟。': 'Không tải được đơn, vui lòng đóng và mở lại.',
   '送出時網路不穩，請先看下方「最近的假單」確認是否已送出，沒有的話再送一次。': 'Mạng không ổn định. Hãy xem "Đơn gần đây" bên dưới để kiểm tra đơn đã gửi chưa; nếu chưa, hãy gửi lại.',
 };
@@ -126,6 +132,34 @@ function applyLang() {
   $('submit').textContent = T('送出請假單'); $('closeBtn').textContent = T('關閉');
 }
 const $ = id => document.getElementById(id);
+
+/* 代理人：可以直接打字（員工編號或姓名），也可以用下方選單滑動選 */
+let AGENTS = [], agentBad = false, typing = false;
+function agentHint(t, color) { const h = $('agentHint'); h.textContent = t; h.style.color = color || '#555'; h.classList.toggle('hidden', !t); }
+function agentTyped() {
+  const raw = $('agentType').value.trim();
+  const pick = id => { typing = true; $('agentSel').value = id; $('agentSel').dispatchEvent(new Event('change')); typing = false; };
+  if (!raw) { pick(''); agentHint('', ''); agentBad = false; return; }
+  if (!/^[A-Za-z]?\d{1,4}$/.test(raw) && /[0-9]/.test(raw) || /[^0-9A-Za-z\u4e00-\u9fff\u00C0-\u1EF9 ]/.test(raw)) {
+    pick(''); agentHint('✗ ' + T('格式不對：請輸入員工編號（數字，例如 0161）或姓名。', '\n'), '#c62828'); agentBad = true; return;
+  }
+  let hits;
+  if (/^[A-Za-z]?\d{1,4}$/.test(raw)) {
+    const id = /^\d+$/.test(raw) ? raw.padStart(4, '0') : raw.toUpperCase();
+    hits = AGENTS.filter(a => a.id === id);
+    if (!hits.length && raw.length < 4) hits = AGENTS.filter(a => a.id.indexOf(raw) === 0);   // 打到一半：先列出開頭相同的
+  } else hits = AGENTS.filter(a => a.name.indexOf(raw) >= 0);
+  if (hits.length === 1) {
+    pick(hits[0].id); agentBad = false;
+    agentHint('✓ ' + hits[0].id + ' ' + hits[0].name + (hits[0].bound === false ? '（' + T('未綁定 LINE') + '）' : ''), '#2e7d32');
+  } else if (hits.length > 1) {
+    pick(''); agentBad = true;
+    agentHint('找到 ' + hits.length + ' 位：' + hits.slice(0, 6).map(a => a.id + ' ' + a.name).join('、') + (hits.length > 6 ? '…' : '') + '\n請再輸入完整一點，或用下方選單選。', '#B45309');
+  } else {
+    pick(''); agentBad = true;
+    agentHint('✗ ' + T('查無此員工，請確認編號或改用下方選單。', '\n'), '#c62828');
+  }
+}
 
 function showError(t){ $('error').textContent = t; $('error').classList.remove('hidden'); window.scrollTo(0,0); }
 function hideError(){ $('error').classList.add('hidden'); }
@@ -218,11 +252,16 @@ async function main(){
       $('agent').classList.add('hidden'); $('agentSel').classList.remove('hidden');
       $('agentSel').innerHTML = '<option value="">' + T('— 請選擇代理人 —') + '</option>' +
         (d.agents || []).map(a => `<option value="${a.id}" data-bound="${a.bound ? 1 : 0}">${a.id} ${a.name}${a.bound === false ? '（' + T('未綁定 LINE') + '）' : ''}</option>`).join('');
+      AGENTS = d.agents || [];
+      $('agentType').classList.remove('hidden');
+      $('agentType').placeholder = T('直接輸入員工編號或姓名，例如 0161');
+      $('agentType').addEventListener('input', agentTyped);
       $('agentSel').addEventListener('change', () => {
         const o = $('agentSel').selectedOptions[0];
         const unbound = o && o.value && o.dataset.bound === '0';
         $('agentNote').textContent = unbound ? '⚠ ' + T('此代理人尚未綁定 LINE，請當面告知。', '\n') : '';
         $('agentNote').classList.toggle('hidden', !unbound);
+        if (!typing) { $('agentType').value = o && o.value ? o.value : ''; agentHint('', ''); agentBad = false; }
       });
     }
     $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
@@ -249,6 +288,7 @@ $('submit').addEventListener('click', async () => {
   const h = calcHours();
   if (h === null || h < 0) { showError(T('請確認開始和結束時間。', '\n')); return; }
   if (!$('reason').value.trim()) { showError(T('請填寫事由。', '\n')); return; }
+  if (needAgent && agentBad && $('agentType').value.trim()) { showError(T('代理人輸入有誤，請修正後再送出。', '\n')); return; }
   if (needAgent && !$('agentSel').value) { showError(T('請選擇職務代理人。', '\n')); return; }
   $('submit').disabled = true; $('submit').textContent = T('送出中…');
   try {
