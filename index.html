@@ -27,6 +27,9 @@
   .msg.err { background:#fdecea; color:var(--err); }
   .msg.ok { background:#e8f5e9; color:var(--ok); }
   .hidden { display:none; }
+  .quick button:disabled { background:#f1f1f1; color:#aaa; border-color:#ccc; }
+  .qreset { margin-top:6px; font-size:13px; color:#777; text-align:right; }
+  .qreset a { color:var(--main); font-weight:bold; text-decoration:underline; margin-left:6px; }
   table { width:100%; border-collapse:collapse; font-size:14px; }
   td { padding:6px 4px; border-bottom:1px solid var(--line); }
   .muted { color:#777; font-size:13px; }
@@ -60,6 +63,7 @@
         <button type="button" data-q="am">上午</button>
         <button type="button" data-q="pm">下午</button>
       </div>
+      <div class="qreset hidden" id="qReset"><span id="qResetTxt">已手動選時間，快速按鈕暫停</span><a href="#" id="qResetBtn">恢復快速按鈕</a></div>
       <div class="hours" id="hours">請假時數：－</div>
 
       <label for="reason" id="lblReason">事由</label>
@@ -106,6 +110,7 @@ const VI = {
   '— 請選擇代理人 —': 'Chọn người làm thay',
   '送出請假單': 'Gửi đơn', '送出中…': 'Đang gửi…', '最近的假單': 'Đơn gần đây', '關閉': 'Đóng',
   '目前沒有假單': 'Chưa có đơn nào',
+  '已手動選時間，快速按鈕暫停': 'Đã tự chọn giờ, tạm khóa nút nhanh', '恢復快速按鈕': 'Mở lại nút nhanh',
   '未綁定 LINE': 'chưa liên kết LINE',
   '此代理人尚未綁定 LINE，請當面告知。': 'Người làm thay này chưa liên kết LINE, vui lòng báo trực tiếp.',
   '結束時間要晚於開始時間': 'Giờ kết thúc phải sau giờ bắt đầu',
@@ -216,13 +221,22 @@ function updateHours(){
   $('hours').style.color = h !== null && h < 0 ? 'var(--err)' : 'var(--main)';
 }
 
+/* 整天／上午／下午：員工自己改過時間後，按鈕變灰色按不下去；點「恢復快速按鈕」才能再用（v11） */
+let manualTime = false;
+const QMAP = { full:['08:00','17:00'], am:['08:00','12:00'], pm:['13:00','17:00'] };
+function lockQuick(on){
+  manualTime = on;
+  document.querySelectorAll('.quick button').forEach(b => b.disabled = on);
+  $('qReset').classList.toggle('hidden', !on);
+}
 function quick(kind){
+  if (manualTime) return;
   if (!$('sDate').value) $('sDate').value = today();
   $('eDate').value = $('sDate').value;
-  const map = { full:['08:00','17:00'], am:['08:00','12:00'], pm:['13:00','17:00'] };
-  $('sTime').value = map[kind][0]; $('eTime').value = map[kind][1];
+  $('sTime').value = QMAP[kind][0]; $('eTime').value = QMAP[kind][1];
   updateHours();
 }
+
 
 async function main(){
   try {
@@ -272,9 +286,12 @@ async function main(){
       : '<tr><td class="muted">' + T('目前沒有假單') + '</td></tr>';
     ['sDate','eDate','sTime','eTime'].forEach(id => $(id).addEventListener('change', () => {
       if (id === 'sDate' && $('eDate').value < $('sDate').value) $('eDate').value = $('sDate').value;
+      if (id !== 'sDate') lockQuick(true);   // 自己改了結束日期或時間 → 快速按鈕暫停
       updateHours();
     }));
     document.querySelectorAll('.quick button').forEach(b => b.addEventListener('click', () => quick(b.dataset.q)));
+    $('qResetBtn').addEventListener('click', e => { e.preventDefault(); lockQuick(false); });
+    $('qResetTxt').textContent = T('已手動選時間，快速按鈕暫停'); $('qResetBtn').textContent = T('恢復快速按鈕');
     updateHours();
     $('formArea').classList.remove('hidden');
   } catch (e) {
