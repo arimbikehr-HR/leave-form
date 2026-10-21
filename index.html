@@ -204,8 +204,9 @@ function calcHours(){
   if (!sd || !ed) return null;
   const s = new Date(sd+'T'+st), e = new Date(ed+'T'+et);
   if (e <= s) return -1;
-  if (sd === ed) return half(dayMin(toMin(st), toMin(et)));
-  let h = half(dayMin(toMin(st), 1020)) + half(dayMin(480, toMin(et)));
+  const work = k => { const x = new Date(k + 'T00:00'); return x.getDay() !== 0 && x.getDay() !== 6 && !holidays.has(k); };   // v12：第一天／最後一天是假日不算
+  if (sd === ed) return work(sd) ? half(dayMin(toMin(st), toMin(et))) : 0;
+  let h = (work(sd) ? half(dayMin(toMin(st), 1020)) : 0) + (work(ed) ? half(dayMin(480, toMin(et))) : 0);
   const d = new Date(sd+'T00:00'); d.setDate(d.getDate()+1);
   const last = new Date(ed+'T00:00');
   for (; d < last; d.setDate(d.getDate()+1)) {
