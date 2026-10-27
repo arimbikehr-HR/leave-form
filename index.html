@@ -99,7 +99,8 @@ const GAS_URL = 'https://script.google.com/macros/s/AKfycbwJZ0ctEp9gje08ll4CeS9c
 
 const SEGMENTS = [[480,600],[610,720],[780,900],[910,1020]];
 let idToken = '', holidays = new Set();
-let needAgent = false;
+let needAgent = false, agentExempt = ['天災假'];   // v13：這些假別免填代理人
+function agentNeed(){ return needAgent && agentExempt.indexOf($('type').value) < 0; }
 /* 越南文（外籍移工自動顯示中越雙語） */
 let VN = false;
 const VI = {
@@ -117,6 +118,7 @@ const VI = {
   '請確認開始和結束時間。': 'Vui lòng kiểm tra giờ bắt đầu và kết thúc.',
   '請填寫事由。': 'Vui lòng nhập lý do.',
   '請選擇職務代理人。': 'Vui lòng chọn người làm thay.',
+  '職務代理人（天災假免填）': 'Người làm thay (nghỉ thiên tai không cần)',
   '直接輸入員工編號或姓名，例如 0161': 'Nhập mã nhân viên hoặc tên, VD: 0161',
   '格式不對：請輸入員工編號（數字，例如 0161）或姓名。': 'Sai định dạng: nhập mã nhân viên (số, VD 0161) hoặc tên.',
   '查無此員工，請確認編號或改用下方選單。': 'Không tìm thấy nhân viên, vui lòng kiểm tra lại hoặc chọn trong danh sách.',
@@ -262,6 +264,7 @@ async function main(){
       (VN ? '\n(Còn ' + d.pendingAL + ' giờ phép năm đang chờ duyệt)' : '') : '');
     $('type').innerHTML = d.leaveTypes.map(t => `<option value="${t}">${t}${VN && d.typeVi && d.typeVi[t] ? ' / ' + d.typeVi[t] : ''}</option>`).join('');
     needAgent = !!d.needAgent;
+    if (d.agentExempt) agentExempt = d.agentExempt;
     if (needAgent) {
       $('agentLabel').textContent = T('職務代理人（必填，代理人會收到 LINE 確認）');
       $('agent').classList.add('hidden'); $('agentSel').classList.remove('hidden');
@@ -279,6 +282,10 @@ async function main(){
         if (!typing) { $('agentType').value = o && o.value ? o.value : ''; agentHint('', ''); agentBad = false; }
       });
     }
+    $('type').addEventListener('change', () => {
+      if (!needAgent) return;
+      $('agentLabel').textContent = agentNeed() ? T('職務代理人（必填，代理人會收到 LINE 確認）') : T('職務代理人（天災假免填）');
+    });
     $('sTime').innerHTML = timeOptions(); $('eTime').innerHTML = timeOptions();
     $('sDate').value = today(); $('eDate').value = today();
     $('sTime').value = '08:00'; $('eTime').value = '17:00';
@@ -306,15 +313,15 @@ $('submit').addEventListener('click', async () => {
   const h = calcHours();
   if (h === null || h < 0) { showError(T('請確認開始和結束時間。', '\n')); return; }
   if (!$('reason').value.trim()) { showError(T('請填寫事由。', '\n')); return; }
-  if (needAgent && agentBad && $('agentType').value.trim()) { showError(T('代理人輸入有誤，請修正後再送出。', '\n')); return; }
-  if (needAgent && !$('agentSel').value) { showError(T('請選擇職務代理人。', '\n')); return; }
+  if (agentNeed() && agentBad && $('agentType').value.trim()) { showError(T('代理人輸入有誤，請修正後再送出。', '\n')); return; }
+  if (agentNeed() && !$('agentSel').value) { showError(T('請選擇職務代理人。', '\n')); return; }
   $('submit').disabled = true; $('submit').textContent = T('送出中…');
   try {
     const d = await api({
       action:'submit', leaveType:$('type').value,
       start:$('sDate').value+'T'+$('sTime').value, end:$('eDate').value+'T'+$('eTime').value,
       reason:$('reason').value.trim(), agent:$('agent').value.trim(),
-      agentId: needAgent ? $('agentSel').value : '',
+      agentId: agentNeed() ? $('agentSel').value : '',
     });
     if (!d.ok) { showError(d.msg); return; }
     $('formArea').classList.add('hidden');
